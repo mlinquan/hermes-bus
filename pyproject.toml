@@ -1,6 +1,6 @@
 [project]
 name = "hermes-bus"
-version = "0.1.1"
+version = "0.1.2"
 description = "Generic message bus transport — Unix Socket message routing, session management, heartbeat"
 readme = "README.md"
 license = {text = "MIT"}

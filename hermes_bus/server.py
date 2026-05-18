@@ -289,7 +289,7 @@ class BusServer:
                 p = subprocess.Popen(
                     [sys.executable, hook_path],
                     stdin=subprocess.PIPE,
-                    stdout=None,
+                    stdout=subprocess.DEVNULL,
                     stderr=subprocess.PIPE,
                 )
                 p.stdin.write(json.dumps(msg).encode())
