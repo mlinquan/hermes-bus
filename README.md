@@ -2,9 +2,49 @@
 
 [English](./README.md) | [中文](./README.zh.md)
 
-A generic message bus for Unix Socket IPC — message routing, session management, heartbeat.
+<p align="center"><img src="assets/avator_default_png8.png" width="500" alt="Snow"></p>
 
-Transport-only. Notification logic is injected via configurable hooks — the bus itself knows nothing about audio, display, or LLM context.
+**Role in the Hermes messaging ecosystem:** hermes-bus is the **transport layer** — a Unix Socket IPC daemon that routes JSON messages between endpoints. It is the backbone. The other two packages in the ecosystem are:
+
+- [hermes-notify](https://github.com/mlinquan/hermes-notify) — **CLI senders** (`notify-hermes`, `notify-agent`) that inject messages into the bus or tmux sessions
+- [hermes-bus-plugin](https://github.com/mlinquan/hermes-bus-plugin) — **receive-side agent plugin** that consumes bus messages and routes them to terminal output, LLM context injection, or command execution
+
+Together: **notify → bus → plugin**. The bus itself is transport-only — it knows nothing about audio, display, LLM context, or chat platforms.
+
+---
+
+## Hermes Messaging Ecosystem
+
+![Hermes Bus Ecosystem Architecture](https://raw.githubusercontent.com/mlinquan/hermes-bus-plugin/main/docs/architecture.svg)
+
+The ecosystem has four layers:
+
+```
+Layer 1 — CLI / User Space          Layer 3 — Agent / Plugin
+┌──────────────────────┐            ┌──────────────────────────┐
+│ notify-hermes        │──┐         │ hermes-bus-plugin        │
+│ notify-agent  ──→ tmux│  │         │  print  → terminal       │
+│ (hermes-notify)      │  │         │  context → LLM injection  │
+└──────────────────────┘  │         │  command → subprocess     │
+                           ▼         │  channel → Gateway        │
+Layer 2 — Transport      ┌──────────┐└────────────┬─────────────┘
+┌──────────────────┐     │hermes-bus│              │
+│ Unix Socket IPC  │────→│ message  │──────────────┘
+│ JSON routing     │     │ daemon   │
+│ session mgmt     │     └──────────┘              Layer 4 — Gateway
+└──────────────────┘                               ┌──────────────────┐
+ (hermes-bus)                                      │ Platform Adapters│
+                                                   │ WeChat · Feishu  │
+                                                   │ WeCom · DingTalk │
+                                                   └──────────────────┘
+```
+
+| Layer | Package | Role |
+|-------|---------|------|
+| 1 — CLI | **hermes-notify** | Send messages into the ecosystem (`notify-hermes`, `notify-agent`) |
+| 2 — Transport | **hermes-bus** | Route JSON messages between endpoints via Unix Socket |
+| 3 — Plugin | **hermes-bus-plugin** | Receive-side agent plugin: print, LLM context injection, command execution, channel routing |
+| 4 — Gateway | *(downstream)* | Platform adapters deliver replies to end users. **Zero agent code changes** |
 
 ## Install
 
@@ -76,16 +116,67 @@ After each message is routed, hook scripts are triggered asynchronously. Resolut
 
 Each hook receives the full message JSON on stdin. Hook execution is non-blocking — the bus continues routing.
 
-## Messages
+## Message Format
+
+All bus messages use 4-byte big-endian length prefix + JSON body. Max payload: 10 MB.
+
+### Envelope (wire format)
+
+```
+┌──────────────────┬──────────────────────────────────┐
+│  4 bytes (BE)    │  JSON body (up to 10 MB)         │
+│  payload length  │  UTF-8 encoded                   │
+└──────────────────┴──────────────────────────────────┘
+```
+
+### Message structure
 
 ```json
 {
   "type": "message",
   "to": "target-endpoint",
   "from": "sender-endpoint",
-  "text": "hello",
-  "body": { }
+  "ts": 1716307200.123,
+  "body": {
+    "text": "Human-readable message content",
+    "type": "task_done",
+    "channel": "feishu:oc_abc123"
+  }
 }
 ```
 
-Special message types: `register` (endpoint registration), `ping`/`pong` (heartbeat), `list_endpoints` (admin query).
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `type` | string | yes | Message type: `message`, `register`, `ping`, `pong`, `list_endpoints` |
+| `to` | string | yes (for `message`) | Target endpoint name |
+| `from` | string | auto | Sender endpoint name (set by bus for registered endpoints) |
+| `ts` | float | auto | Unix timestamp (set by bus on receipt) |
+| `body` | object | no | Application payload — see below |
+| `body.text` | string | no | Human-readable message text |
+| `body.type` | string | no | Application-level type: `directive`, `ack`, `task_start`, `progress`, `task_done`, `plan_ready`, `task_error`, `need_decision` |
+| `body.channel` | string | no | Reply routing token (`platform:chat_id`). Carried through the chain unmodified |
+
+### Special message types
+
+| `type` | Direction | Description |
+|--------|-----------|-------------|
+| `register` | client → server | Register as a named endpoint |
+| `registered` | server → client | Registration acknowledgement with `session_id` |
+| `ping` | client → server | Heartbeat (sent every 55s by long-lived connections) |
+| `pong` | server → client | Heartbeat response |
+| `list_endpoints` | client → server | Request connected endpoint list |
+| `endpoint_list` | server → client | Response with current endpoints |
+| `message` | bidirectional | Application message (routed by `to` field) |
+
+### Message lifecycle
+
+```
+Client sends:      {"type":"message","to":"lead-agent","body":{"text":"hello","type":"ack"}}
+                                                                                    │
+Bus server:        Registers timestamp, resolves target endpoint, delivers          │
+                                                                                    ▼
+Target receives:   {"type":"message","from":"worker-alpha","to":"lead-agent",
+                    "ts":1716307200.123,"body":{"text":"hello","type":"ack"}}
+```
+
+The bus adds `from` (if not set by sender) and `ts` fields during routing. The `body` object is passed through unmodified — the bus never inspects or alters application payload.
