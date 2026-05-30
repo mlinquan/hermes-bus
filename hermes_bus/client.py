@@ -25,8 +25,8 @@ from typing import Any, Optional
 
 
 def _get_bus_socket_path() -> str:
-    home = os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes"))
-    return os.path.join(home, "hermes-bus.sock")
+    root = os.environ.get("HERMES_BUS_ROOT", os.path.expanduser("~/.hermes"))
+    return os.path.join(root, "hermes-bus.sock")
 
 
 MAX_PAYLOAD_BYTES = 10 * 1024 * 1024

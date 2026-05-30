@@ -26,9 +26,10 @@ from pathlib import Path
 from typing import Optional
 
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", os.path.expanduser("~/.hermes")))
-RUN_DIR = HERMES_HOME / "run"
+ROOT_HERMES_HOME = Path(os.environ.get("HERMES_BUS_ROOT", os.path.expanduser("~/.hermes")))
+RUN_DIR = ROOT_HERMES_HOME / "run"
 PID_PATH = RUN_DIR / "busd.pid"
-SOCKET_PATH = HERMES_HOME / "hermes-bus.sock"
+SOCKET_PATH = ROOT_HERMES_HOME / "hermes-bus.sock"
 LOG_PATH = RUN_DIR / "busd.log"
 # Use module-based invocation so it always runs the installed hermes_bus.server
 SERVER_MODULE = "hermes_bus.server"

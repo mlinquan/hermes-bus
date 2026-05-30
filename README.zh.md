@@ -46,6 +46,30 @@
 | 3 — 插件 | **hermes-bus-plugin** | 接收端 agent 插件：终端输出、LLM 上下文注入、命令执行、channel 路由 |
 | 4 — Gateway | *(下游)* | 平台适配器将回复投递给最终用户。**零 agent 代码改动** |
 
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `HERMES_BUS_ROOT` | `~/.hermes` | 总线 socket 目录（`hermes-bus.sock`）和运行目录（`run/`）。与 `HERMES_HOME` 分离，确保所有 profile 共享一个总线守护进程。 |
+| `HERMES_HOME` | `~/.hermes` | Hermes 配置主目录（可指向 profile 子目录）。不影响总线 socket 位置。 |
+
+### Profile 多配置示例
+
+```bash
+# 默认 profile（HERMES_HOME=~/.hermes）
+hermes-busd start                           # socket → ~/.hermes/hermes-bus.sock
+notify-hermes --to hermes-bus "hello"        # 路由到默认 profile 的端点
+
+# 创建 work profile
+hermes profile create work
+
+# work profile 共享同一个总线守护进程
+hermes-busd status                          # 仍然连接 ~/.hermes/hermes-bus.sock
+notify-hermes --to work-gateway "hello"      # 路由到 work profile 的端点
+```
+
+> **关键设计：** `HERMES_BUS_ROOT`（socket 位置）与 `HERMES_HOME`（配置目录）分离。所有 profile 共用同一个 `hermes-busd` 守护进程，但各自拥有独立的 `bus-rules.yaml` 和端点注册。消息可跨 profile 互通。端点命名规则：`<profile>-gateway`（如 `work` → `work-gateway`）。
+
 ## 安装
 
 ```bash
@@ -71,6 +95,21 @@ hermes-busd restart     # 重启
 # 前台运行（调试用）
 hermes-bus-server
 ```
+
+### 重启顺序
+
+升级 `hermes-bus` 包后，需重启守护进程使改动生效：
+
+```bash
+# 1. 重启总线守护进程（已注册端点会断连并自动重连）
+hermes-busd restart
+
+# 2. Gateway 需要重启以重新加载 hermes-bus 模块
+# 在 Gateway tmux 窗格中 Ctrl+C 后：
+hermes gateway
+```
+
+> `hermes-busd restart` = `stop` + `start`。所有已注册端点会自动重连（bus-plugin 内置自动重连机制，5 秒重试）。
 
 ## Python API
 

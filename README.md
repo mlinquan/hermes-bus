@@ -46,6 +46,30 @@ Layer 2 — Transport      ┌──────────┐└────�
 | 3 — Plugin | **hermes-bus-plugin** | Receive-side agent plugin: print, LLM context injection, command execution, channel routing |
 | 4 — Gateway | *(downstream)* | Platform adapters deliver replies to end users. **Zero agent code changes** |
 
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HERMES_BUS_ROOT` | `~/.hermes` | Bus socket directory (`hermes-bus.sock`) and run directory (`run/`). Separate from `HERMES_HOME` so all profiles share one bus daemon. |
+| `HERMES_HOME` | `~/.hermes` | Hermes config home (may be profile-scoped). Does NOT affect the bus socket location. |
+
+### Profile Example
+
+```bash
+# Default profile (HERMES_HOME=~/.hermes)
+hermes-busd start                                # socket → ~/.hermes/hermes-bus.sock
+notify-hermes --to hermes-bus "hello"             # route to default profile endpoint
+
+# Create and use a work profile
+hermes profile create work
+
+# Work profile shares the same bus daemon
+hermes-busd status                               # still connected to ~/.hermes/hermes-bus.sock
+notify-hermes --to work-gateway "hello"           # route to work profile's Gateway endpoint
+```
+
+> **Key design:** `HERMES_BUS_ROOT` (socket location) is separate from `HERMES_HOME` (config directory). All profiles share one `hermes-busd` daemon, but each has its own `bus-rules.yaml` and endpoint registration. Profile endpoint naming: `<profile>-gateway` (e.g., `work` → `work-gateway`).
+
 ## Install
 
 ```bash
@@ -71,6 +95,21 @@ hermes-busd restart     # Restart the daemon
 # Foreground server (for debugging)
 hermes-bus-server
 ```
+
+### Restart Order
+
+After upgrading `hermes-bus`, restart the daemon and Gateway:
+
+```bash
+# 1. Restart the bus daemon (connected endpoints will auto-reconnect)
+hermes-busd restart
+
+# 2. Restart Gateway to reload the updated hermes-bus module
+# In the Gateway tmux pane: Ctrl+C, then:
+hermes gateway
+```
+
+> `hermes-busd restart` = `stop` + `start`. All registered endpoints auto-reconnect (bus-plugin has built-in retry every 5 seconds).
 
 ## Python API
 
